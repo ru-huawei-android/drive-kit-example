@@ -25,9 +25,13 @@ import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 object CredentialManager {
-    private const val REQUEST_AUTH = 1002
     private var account: AuthHuaweiId? = null
     var credential: DriveCredential? = null
+    private val scopes = listOf(
+        Scope(DriveScopes.SCOPE_DRIVE_FILE),
+        Scope(DriveScopes.SCOPE_DRIVE_APPDATA)
+    )
+
 
     fun signInWithDrivePermissionRequest(
         activity: ComponentActivity,
@@ -35,30 +39,27 @@ object CredentialManager {
         onFailure: () -> Unit = {
             signInWithDrivePermissionRequest(
                 activity = activity,
-                onSuccess = { }
+                onSuccess = onSuccess
             )
         }
     ) {
-        val scopeList = listOf(
-            Scope(DriveScopes.SCOPE_DRIVE_FILE),
-            Scope(DriveScopes.SCOPE_DRIVE_APPDATA)
-        )
         val authParams = HuaweiIdAuthParamsHelper(HuaweiIdAuthParams.DEFAULT_AUTH_REQUEST_PARAM)
             .setAccessToken()
             .setIdToken()
-            .setScopeList(scopeList)
+            .setScopeList(scopes)
             .createParams()
         val huaweiIdAuthService = HuaweiIdAuthManager
             .getService(activity.applicationContext, authParams)
-        activity.startActivityForResult(
-            huaweiIdAuthService.signInIntent,
-            REQUEST_AUTH
-        )
+
         val signInLauncher = activity
             .registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
                 if(it.resultCode == Activity.RESULT_OK) {
                     onSignInResult(it.data)
-                    onSuccess()
+                    if(permissionsGranted) {
+                        onSuccess()
+                    } else {
+                        onFailure()
+                    }
                 }
                 else {
                     onFailure()
@@ -77,11 +78,12 @@ object CredentialManager {
         else {
             account = result.huaweiId
             init()
-            if (account == null) {
-                return
-            }
         }
     }
+
+    private val permissionsGranted: Boolean
+        get() = (account != null && HuaweiIdAuthManager.containScopes(account, scopes))
+
 
     private suspend fun refreshAccessToken(activity: Activity)
     = suspendCoroutine<String> { continuation ->

@@ -2,15 +2,17 @@ package com.sample.huawei.drivekit
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
 import android.widget.Toast
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.huawei.cloud.services.drive.Drive
@@ -23,11 +25,18 @@ import kotlin.math.max
 import com.huawei.cloud.base.http.FileContent
 import com.sample.huawei.drivekit.DriveActivity.Companion.TAG
 
+import com.huawei.cloud.base.media.MediaHttpDownloaderProgressListener
+import java.io.FileOutputStream
+
+
 @SuppressLint("MutableCollectionMutableState")
-class FolderViewModel(private val app: Application): AndroidViewModel(app) {
+class DriveViewModel(private val app: Application): AndroidViewModel(app) {
 
     var currentFolder: File? by mutableStateOf(File().apply { id = "root"})
-    var children = mutableStateListOf<File?>()
+    var childrenFolders = mutableStateListOf<File?>()
+    var childrenFiles = mutableStateListOf<File?>()
+    lateinit var displayMode: DisplayMode
+
     private lateinit var fileUri: Uri
     private lateinit var file: java.io.File
     private var drive: Drive? = null
@@ -45,21 +54,35 @@ class FolderViewModel(private val app: Application): AndroidViewModel(app) {
     }
 
     fun getChildren() {
+        clear()
+        fetch(RequestMode.Folders)
+        fetch(RequestMode.Files)
+    }
+
+    private fun fetch(mode: RequestMode) {
         viewModelScope.launch {
             withContext(IO) {
-                children.clear()
                 val request = drive?.files()?.list()
                 var cursor: String?
-                val directoryId = currentFolder?.let { "'${it.id}'" } ?: "'root'"
-                val query =
-                    "$directoryId in parentFolder and mimeType='application/vnd.huawei-apps.folder'"
+                val fileId = currentFolder?.let { "'${it.id}'" } ?: "'root'"
+                val query = when(mode) {
+                    RequestMode.Folders ->
+                        "$fileId in parentFolder and mimeType='application/vnd.huawei-apps.folder'"
+                    RequestMode.Files ->
+                        "$fileId in parentFolder and mimeType!='application/vnd.huawei-apps.folder'"
+                }
                 do {
                     val result = request
                         ?.setQueryParam(query)
                         ?.setOrderBy("fileName")
                         ?.execute()
-                    result?.files?.forEach {
-                        children.add(it)
+                    when(mode) {
+                        RequestMode.Folders -> result?.files?.forEach {
+                            childrenFolders.add(it)
+                        }
+                        RequestMode.Files -> result?.files?.forEach {
+                            childrenFiles.add(it)
+                        }
                     }
                     cursor = result?.nextCursor
                     request?.cursor = cursor
@@ -70,9 +93,85 @@ class FolderViewModel(private val app: Application): AndroidViewModel(app) {
 
     fun openFolder(index: Int) {
         val folderId = listOf(currentFolder?.id)
-        currentFolder = children[index]
+        currentFolder = childrenFolders[index]
         currentFolder?.parentFolder = folderId
         getChildren()
+    }
+
+    fun onPickDriveFile(index: Int) =
+        childrenFiles[index]?.let { downloadFile(it) }
+
+    private fun downloadFile(file: File) {
+        viewModelScope.launch {
+            withContext(IO) {
+                try {
+                    if(file.id == null) {
+                        displayToast("executeFilesGet error, need to create file.")
+                        return@withContext
+                    }
+                    val path = context.externalCacheDir?.path
+                    Log.d(TAG, "Storage path: $path")
+                    // Obtain file metadata.
+                    val request = drive?.files()?.get(file.id)
+                    request?.fields = "id,size"
+                    val res = request?.execute()
+                    // Download a file.
+                    val size = res?.getSize() ?: 0
+                    val fileRequest = drive?.files()?.get(file.id)
+                    fileRequest?.form = "content"
+                    val downloader = fileRequest?.mediaHttpDownloader
+                    downloader?.setContentRange(0, size - 1)?.isDirectDownloadEnabled =
+                        size < DIRECT_DOWNLOAD_MAX_SIZE
+                    downloader?.progressListener =
+                        MediaHttpDownloaderProgressListener { mediaHttpDownloader ->
+                            // The download subthread calls this method
+                            // to process the download progress.
+                            Log.d(TAG, "download progress: ${mediaHttpDownloader.progress}")
+                        }
+                    fileRequest?.let {
+                        saveFileToDownloadsFolder(
+                            context = context,
+                            fileRequest = it,
+                            fileName = file.fileName,
+                            mimeType = file.mimeType
+                        )
+                        displayToast("File saved to downloads folder")
+                    }
+                } catch (e: Exception) {
+                    displayToast("executeFilesGet exception: $e")
+                }
+            }
+        }
+    }
+
+    private fun saveFileToDownloadsFolder(
+        context: Context,
+        fileRequest: Drive.Files.Get,
+        fileName: String,
+        mimeType: String
+    ) {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+        val resolver = context.contentResolver
+
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                fileRequest.executeContentAndDownloadTo(
+                    resolver.openOutputStream(uri)
+                )
+            }
+        }
+        else {
+            val target = java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                fileName
+            )
+            fileRequest.executeContentAndDownloadTo(FileOutputStream(target))
+        }
     }
 
     fun onSelectFolder() {
@@ -93,8 +192,14 @@ class FolderViewModel(private val app: Application): AndroidViewModel(app) {
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
     }
 
-    fun onFilePicked(uri: Uri) {
+    private fun clear() {
+        childrenFolders.clear()
+        childrenFiles.clear()
+    }
+
+    fun onUploadFilePicked(uri: Uri) {
         fileUri = uri
+        getChildren()
     }
 
     private fun getFileName(uri: Uri) = context.contentResolver.query(
@@ -113,14 +218,12 @@ class FolderViewModel(private val app: Application): AndroidViewModel(app) {
         viewModelScope.launch {
             withContext(IO) {
                 if(currentFolder?.parentFolder?.isNotEmpty() == true) {
-                    children.clear()
                     val directoryId = currentFolder?.parentFolder?.get(0)
                     currentFolder = directoryId?.let {
                         val request = drive?.files()?.get(directoryId)
                         request?.fields = "*"
                         request?.execute()
                     }
-                    displayToast("current folder id: ${currentFolder?.id}")
                     getChildren()
                 }
             }
@@ -179,7 +282,12 @@ class FolderViewModel(private val app: Application): AndroidViewModel(app) {
         }
     }
 
+    enum class RequestMode {
+        Folders,
+        Files
+    }
     companion object {
-        const val DIRECT_UPLOAD_MAX_SIZE = 20000000
+        const val DIRECT_UPLOAD_MAX_SIZE = 5000000
+        const val DIRECT_DOWNLOAD_MAX_SIZE = 20000000
     }
 }

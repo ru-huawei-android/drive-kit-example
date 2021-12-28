@@ -8,7 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 class DriveActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val viewModel: FolderViewModel by viewModels()
+        val viewModel: DriveViewModel by viewModels()
         CredentialManager.signInWithDrivePermissionRequest(
             activity = this,
             onSuccess = {

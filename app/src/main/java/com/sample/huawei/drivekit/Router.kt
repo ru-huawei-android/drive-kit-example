@@ -1,40 +1,47 @@
 package com.sample.huawei.drivekit
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sample.huawei.drivekit.ui.DriveScreen
-import com.sample.huawei.drivekit.ui.UploadScreen
+import com.sample.huawei.drivekit.ui.MainScreen
 
 @Composable
-fun Router(viewModel: FolderViewModel) {
+fun Router(viewModel: DriveViewModel) {
     val navController = rememberNavController()
-    LaunchedEffect(true) {
-        viewModel.getChildren()
-    }
     NavHost(
         navController = navController,
-        startDestination = Destinations.Upload
+        startDestination = Destinations.Main
     ) {
         with(viewModel) {
-            composable(Destinations.Upload) {
-                UploadScreen(
+            composable(Destinations.Main) {
+                MainScreen(
                     onFileSelected = {
-                        onFilePicked(it)
+                        onUploadFilePicked(it)
+                        displayMode = DisplayMode.Upload
+                        navController.navigate(Destinations.Drive)
+                    },
+                    onDownloadClick = {
+                        displayMode = DisplayMode.Download
+                        getChildren()
                         navController.navigate(Destinations.Drive)
                     }
                 )
             }
             composable(Destinations.Drive) {
                 DriveScreen(
-                    name = currentFolder?.fileName ?: "Select a cloud folder to upload",
-                    children = children.map { it?.fileName ?: "" },
+                    mode = displayMode,
+                    name = currentFolder?.fileName ?: "My Drive",
+                    folders = childrenFolders.map { it?.fileName ?: "" },
                     onFolderClick = ::openFolder,
-                    onSelect = {
+                    files = childrenFiles.map { it?.fileName ?: "" },
+                    onFileClick = {
+                        onPickDriveFile(it)
+                    },
+                    onSubmitFolder = {
                         onSelectFolder()
-                        navController.navigate(Destinations.Upload)
+                        navController.navigate(Destinations.Main)
                     },
                     onBack = ::moveToUpperLevel,
                     onCreateNewFolder = ::createNewFolder
@@ -45,6 +52,11 @@ fun Router(viewModel: FolderViewModel) {
 }
 
 object Destinations {
-    const val Upload = "upload"
+    const val Main = "main"
     const val Drive = "drive"
+}
+
+enum class DisplayMode {
+    Upload,
+    Download
 }

@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,17 +19,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sample.huawei.drivekit.DisplayMode
 
 @Composable
 fun DriveScreen(
+    mode: DisplayMode = DisplayMode.Upload,
     name: String,
-    children: List<String>,
+    folders: List<String>,
     onFolderClick: (Int) -> Unit = { },
+    files: List<String> = emptyList(),
+    onFileClick: (Int) -> Unit = { },
     onBack: () -> Unit = { },
-    onSelect: () -> Unit = { },
+    onSubmitFolder: () -> Unit = { },
     onCreateNewFolder: (String) -> Unit = { }
 ) {
-    var showDialog by remember { mutableStateOf(false) }
     Box {
         Column(
             modifier = Modifier
@@ -44,56 +46,83 @@ fun DriveScreen(
                 fontSize = 24.sp
             )
             Spacer(Modifier.height(24.dp))
-            FolderItem(
-                onClick = onBack,
-                imageVector = Icons.Filled.SubdirectoryArrowRight,
-                name = ". . ."
-            )
             LazyColumn {
-                itemsIndexed(children) { index, child ->
-                    FolderItem(
+                item {
+                    Item(
+                        onClick = onBack,
+                        imageVector = Icons.Filled.SubdirectoryArrowRight,
+                        name = ". . ."
+                    )
+                }
+                itemsIndexed(folders) { index, folder ->
+                    Item(
                         onClick = { onFolderClick(index) },
-                        imageVector = Icons.Outlined.Folder,
-                        name = child
+                        imageVector = Icons.Filled.FolderOpen,
+                        name = folder
+                    )
+                }
+                itemsIndexed(files) { index, file ->
+                    Item(
+                        onClick = {
+                            if(mode == DisplayMode.Download)
+                                onFileClick(index)
+                        },
+                        imageVector = Icons.Filled.TextSnippet,
+                        name = file
                     )
                 }
             }
         }
-        Row(
-            modifier = Modifier
-                .background(Color.White)
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Button(
-                onClick = onSelect,
-                shape = CircleShape
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Done, null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Submit")
-                }
-            }
-            Button(
-                onClick = { showDialog = true },
-                shape = CircleShape
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CreateNewFolder, null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Folder")
-                }
-            }
-        }
-        if(showDialog) {
-            NewFolderDialog(
-                onDismissRequest = { showDialog = false },
+        if(mode == DisplayMode.Upload) {
+            BottomUploadButtons(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onSubmit = onSubmitFolder,
                 onCreateNewFolder = onCreateNewFolder
             )
         }
+    }
+}
+
+@Composable
+private fun BottomUploadButtons(
+    modifier: Modifier = Modifier,
+    onSubmit: () -> Unit,
+    onCreateNewFolder: (String) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .background(Color.White)
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Button(
+            onClick = onSubmit,
+            shape = CircleShape
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Done, null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Submit")
+            }
+        }
+        Button(
+            onClick = { showDialog = true },
+            shape = CircleShape
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CreateNewFolder, null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Folder")
+            }
+        }
+    }
+    if(showDialog) {
+        NewFolderDialog(
+            onDismissRequest = { showDialog = false },
+            onCreateNewFolder = onCreateNewFolder
+        )
     }
 }
 
@@ -150,7 +179,7 @@ private fun NewFolderDialog(
 }
 
 @Composable
-private fun FolderItem(
+private fun Item(
     onClick: () -> Unit,
     name: String = "",
     imageVector: ImageVector? = null,
@@ -179,13 +208,17 @@ private fun FolderItem(
     }
 }
 
+
 @Preview
 @Composable
 fun FolderScreenPreview() {
     DriveScreen(
         name = "My Drive",
-        children = List(7) {
+        folders = List(7) {
             "Folder ${it + 1}"
+        },
+        files = List(6) {
+            "File ${it + 1}"
         }
     )
 }
