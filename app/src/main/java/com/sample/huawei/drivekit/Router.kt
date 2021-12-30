@@ -17,14 +17,19 @@ fun Router(viewModel: DriveViewModel) {
         with(viewModel) {
             composable(Destinations.Main) {
                 MainScreen(
+                    signedIn = signedIn,
+                    onSignInResult = {
+                        it?.let { onSignInResult(it) }
+                    },
                     onFileSelected = {
                         onUploadFilePicked(it)
                         displayMode = DisplayMode.Upload
+                        moveToRootFolder()
                         navController.navigate(Destinations.Drive)
                     },
                     onDownloadClick = {
                         displayMode = DisplayMode.Download
-                        getChildren()
+                        moveToRootFolder()
                         navController.navigate(Destinations.Drive)
                     }
                 )
@@ -41,10 +46,10 @@ fun Router(viewModel: DriveViewModel) {
                     },
                     onSubmitFolder = {
                         onSelectFolder()
-                        navController.navigate(Destinations.Main)
                     },
                     onBack = ::moveToUpperLevel,
-                    onCreateNewFolder = ::createNewFolder
+                    onCreateNewFolder = ::createNewFolder,
+                    progress = progress
                 )
             }
         }

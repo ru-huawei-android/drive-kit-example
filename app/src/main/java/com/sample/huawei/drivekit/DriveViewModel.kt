@@ -1,9 +1,11 @@
 package com.sample.huawei.drivekit
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.Application
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -12,6 +14,8 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,15 +30,18 @@ import com.huawei.cloud.base.http.FileContent
 import com.sample.huawei.drivekit.DriveActivity.Companion.TAG
 
 import com.huawei.cloud.base.media.MediaHttpDownloaderProgressListener
+import com.huawei.cloud.base.media.MediaHttpUploaderProgressListener
 import java.io.FileOutputStream
-
+import kotlin.coroutines.resume
 
 @SuppressLint("MutableCollectionMutableState")
 class DriveViewModel(private val app: Application): AndroidViewModel(app) {
 
+    var signedIn: Boolean by mutableStateOf(false)
     var currentFolder: File? by mutableStateOf(File().apply { id = "root"})
     var childrenFolders = mutableStateListOf<File?>()
     var childrenFiles = mutableStateListOf<File?>()
+    var progress by mutableStateOf<Float?>(null)
     lateinit var displayMode: DisplayMode
 
     private lateinit var fileUri: Uri
@@ -42,18 +49,25 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
     private var drive: Drive? = null
     private val context get() = app.applicationContext
 
-    init {
-        viewModelScope.launch {
-            withContext(Main) {
-                drive = Drive.Builder(
-                    CredentialManager.credential,
-                    context
-                ).build()
-            }
+    fun onSignInResult(data: Intent) {
+        signedIn = CredentialManager.getSignInResult(data)
+        if(signedIn) {
+            displayToast( "Successfully authorized")
+            drive = Drive.Builder(
+                CredentialManager.credential,
+                context
+            ).build()
+        } else {
+            displayToast("Authorization failure. Please try again")
         }
     }
 
-    fun getChildren() {
+    fun moveToRootFolder() {
+        currentFolder?.id = "root"
+        update()
+    }
+
+    private fun update() {
         clear()
         fetch(RequestMode.Folders)
         fetch(RequestMode.Files)
@@ -95,7 +109,7 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
         val folderId = listOf(currentFolder?.id)
         currentFolder = childrenFolders[index]
         currentFolder?.parentFolder = folderId
-        getChildren()
+        update()
     }
 
     fun onPickDriveFile(index: Int) =
@@ -124,9 +138,8 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                         size < DIRECT_DOWNLOAD_MAX_SIZE
                     downloader?.progressListener =
                         MediaHttpDownloaderProgressListener { mediaHttpDownloader ->
-                            // The download subthread calls this method
-                            // to process the download progress.
                             Log.d(TAG, "download progress: ${mediaHttpDownloader.progress}")
+                            progress = mediaHttpDownloader.progress.toFloat()
                         }
                     fileRequest?.let {
                         saveFileToDownloadsFolder(
@@ -140,6 +153,37 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                 } catch (e: Exception) {
                     displayToast("executeFilesGet exception: $e")
                 }
+                progress = null
+                update()
+            }
+        }
+    }
+
+    private fun uploadFile(file: java.io.File) {
+        viewModelScope.launch {
+            withContext(IO) {
+                try {
+                    val fileContent = FileContent(null, file)
+                    val content = File().apply {
+                        fileName = file.name
+                        parentFolder = listOf(currentFolder?.id)
+                        mimeType = getMimeType(file)
+                    }
+                    val request = drive?.files()?.create(content, fileContent)
+                    request?.mediaHttpUploader
+                        ?.isDirectUploadEnabled = file.length() < DIRECT_UPLOAD_MAX_SIZE
+                    request?.mediaHttpUploader?.progressListener =
+                        MediaHttpUploaderProgressListener {
+                            Log.d(TAG, "upload progress: ${it.progress}")
+                            progress = it.progress.toFloat()
+                        }
+                    request?.execute()
+                    displayToast("File successfully uploaded")
+                } catch (e: Exception) {
+                    displayToast("upload file exception: $e")
+                }
+                progress = null
+                update()
             }
         }
     }
@@ -150,14 +194,14 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
         fileName: String,
         mimeType: String
     ) {
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-        }
-        val resolver = context.contentResolver
-
         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val resolver = context.contentResolver
+
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
             if (uri != null) {
                 fileRequest.executeContentAndDownloadTo(
@@ -199,7 +243,7 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
 
     fun onUploadFilePicked(uri: Uri) {
         fileUri = uri
-        getChildren()
+        update()
     }
 
     private fun getFileName(uri: Uri) = context.contentResolver.query(
@@ -224,7 +268,7 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                         request?.fields = "*"
                         request?.execute()
                     }
-                    getChildren()
+                    update()
                 }
             }
         }
@@ -242,32 +286,10 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                         mimeType = "application/vnd.huawei-apps.folder"
                     }
                     drive?.files()?.create(dir)?.execute()
-                    getChildren()
+                    update()
                     displayToast("folder \"$name\" successfully created")
                 } catch (e: Exception) {
                     displayToast("couldn't create folder: $e")
-                }
-            }
-        }
-    }
-
-    private fun uploadFile(file: java.io.File) {
-        viewModelScope.launch {
-            withContext(IO) {
-                try {
-                    val fileContent = FileContent(null, file)
-                    val content = File().apply {
-                        fileName = file.name
-                        parentFolder = listOf(currentFolder?.id)
-                        mimeType = getMimeType(file)
-                    }
-                    val request = drive?.files()?.create(content, fileContent)
-                    request?.mediaHttpUploader
-                        ?.isDirectUploadEnabled = file.length() < DIRECT_UPLOAD_MAX_SIZE
-                    request?.execute()
-                    displayToast("File successfully uploaded")
-                } catch (e: Exception) {
-                    displayToast("upload file exception: $e")
                 }
             }
         }

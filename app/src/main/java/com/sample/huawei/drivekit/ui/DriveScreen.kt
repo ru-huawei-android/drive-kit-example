@@ -1,5 +1,7 @@
 package com.sample.huawei.drivekit.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -31,7 +33,8 @@ fun DriveScreen(
     onFileClick: (Int) -> Unit = { },
     onBack: () -> Unit = { },
     onSubmitFolder: () -> Unit = { },
-    onCreateNewFolder: (String) -> Unit = { }
+    onCreateNewFolder: (String) -> Unit = { },
+    progress: Float? = null
 ) {
     Box {
         Column(
@@ -80,6 +83,47 @@ fun DriveScreen(
                 onCreateNewFolder = onCreateNewFolder
             )
         }
+        progress?.let {
+            ProgressDialog(
+                mode = mode,
+                progress = it
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProgressDialog(
+    mode: DisplayMode,
+    progress: Float
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = keyframes { }
+    )
+    if(animatedProgress < 1f) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = {
+                val title = when (mode) {
+                    DisplayMode.Download -> "Download progress"
+                    DisplayMode.Upload -> "Upload progress"
+                }
+                Text(
+                    text = title,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            buttons = {
+                LinearProgressIndicator(
+                    progress = animatedProgress,
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .fillMaxWidth()
+                )
+            }
+        )
     }
 }
 
@@ -206,19 +250,4 @@ private fun Item(
             modifier = Modifier.padding(4.dp)
         )
     }
-}
-
-
-@Preview
-@Composable
-fun FolderScreenPreview() {
-    DriveScreen(
-        name = "My Drive",
-        folders = List(7) {
-            "Folder ${it + 1}"
-        },
-        files = List(6) {
-            "File ${it + 1}"
-        }
-    )
 }
