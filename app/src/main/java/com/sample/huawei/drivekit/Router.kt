@@ -49,6 +49,10 @@ fun Router(viewModel: DriveViewModel) {
                     },
                     onBack = ::moveToUpperLevel,
                     onCreateNewFolder = ::createNewFolder,
+                    onActionDone = {
+                        onActionDone()
+                        navController.navigate(Destinations.Main)
+                    },
                     progress = progress
                 )
             }

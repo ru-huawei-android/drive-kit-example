@@ -67,6 +67,11 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
         update()
     }
 
+    fun onActionDone() {
+        progress = null
+        update()
+    }
+
     private fun update() {
         clear()
         fetch(RequestMode.Folders)
@@ -153,7 +158,6 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                 } catch (e: Exception) {
                     displayToast("executeFilesGet exception: $e")
                 }
-                progress = null
                 update()
             }
         }
@@ -182,7 +186,6 @@ class DriveViewModel(private val app: Application): AndroidViewModel(app) {
                 } catch (e: Exception) {
                     displayToast("upload file exception: $e")
                 }
-                progress = null
                 update()
             }
         }

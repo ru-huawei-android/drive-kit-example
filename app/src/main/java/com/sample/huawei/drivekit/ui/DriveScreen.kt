@@ -18,7 +18,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sample.huawei.drivekit.DisplayMode
@@ -34,6 +33,7 @@ fun DriveScreen(
     onBack: () -> Unit = { },
     onSubmitFolder: () -> Unit = { },
     onCreateNewFolder: (String) -> Unit = { },
+    onActionDone: () -> Unit,
     progress: Float? = null
 ) {
     Box {
@@ -86,7 +86,8 @@ fun DriveScreen(
         progress?.let {
             ProgressDialog(
                 mode = mode,
-                progress = it
+                progress = it,
+                onActionDone = onActionDone
             )
         }
     }
@@ -95,36 +96,45 @@ fun DriveScreen(
 @Composable
 private fun ProgressDialog(
     mode: DisplayMode,
-    progress: Float
+    progress: Float,
+    onActionDone: () -> Unit
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
-        animationSpec = keyframes { }
+        animationSpec = keyframes { },
     )
-    if(animatedProgress < 1f) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = {
-                val title = when (mode) {
-                    DisplayMode.Download -> "Download progress"
-                    DisplayMode.Upload -> "Upload progress"
-                }
-                Text(
-                    text = title,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            buttons = {
-                LinearProgressIndicator(
-                    progress = animatedProgress,
-                    modifier = Modifier
-                        .padding(20.dp)
-                        .fillMaxWidth()
-                )
+    AlertDialog(
+        onDismissRequest = { },
+        title = {
+            val title = when (mode) {
+                DisplayMode.Download -> "Download progress"
+                DisplayMode.Upload -> "Upload progress"
             }
-        )
-    }
+            Text(
+                text = title,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        buttons = {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                LinearProgressIndicator(
+                    progress = animatedProgress
+                )
+                TextButton(
+                    onClick = onActionDone,
+                    enabled = animatedProgress >= 1f
+                ) {
+                    Text("OK")
+                }
+            }
+        }
+    )
 }
 
 @Composable
