@@ -4,8 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import com.huawei.cloud.base.auth.DriveCredential
 import com.huawei.cloud.client.exception.DriveCode
 import com.huawei.cloud.services.drive.DriveScopes
@@ -19,7 +17,6 @@ import com.huawei.hms.support.hwid.request.HuaweiIdAuthParams
 import com.huawei.hms.support.hwid.request.HuaweiIdAuthParamsHelper
 import com.huawei.hms.support.hwid.result.AuthHuaweiId
 import com.sample.huawei.drivekit.DriveActivity.Companion.TAG
-import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -33,57 +30,31 @@ object CredentialManager {
     )
 
 
-    fun signInWithDrivePermissionRequest(
-        activity: ComponentActivity,
-        onSuccess: () -> Unit = { },
-        onFailure: () -> Unit = {
-            signInWithDrivePermissionRequest(
-                activity = activity,
-                onSuccess = onSuccess
-            )
-        }
-    ) {
+    fun getSignInIntent(context: Context): Intent? {
         val authParams = HuaweiIdAuthParamsHelper(HuaweiIdAuthParams.DEFAULT_AUTH_REQUEST_PARAM)
             .setAccessToken()
             .setIdToken()
             .setScopeList(scopes)
             .createParams()
-        val huaweiIdAuthService = HuaweiIdAuthManager
-            .getService(activity.applicationContext, authParams)
 
-        val signInLauncher = activity
-            .registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                if(it.resultCode == Activity.RESULT_OK) {
-                    onSignInResult(it.data)
-                    if(permissionsGranted) {
-                        onSuccess()
-                    } else {
-                        onFailure()
-                    }
-                }
-                else {
-                    onFailure()
-                }
-            }
-        signInLauncher.launch(huaweiIdAuthService.signInIntent)
+        return HuaweiIdAuthManager.getService(context, authParams).signInIntent
     }
 
-    private fun onSignInResult(data: Intent?) {
+    fun getSignInResult(data: Intent?): Boolean {
         val result = HuaweiIdAuthAPIManager
             .HuaweiIdAuthAPIService
             .parseHuaweiIdFromIntent(data)
-        if(!result.isSuccess) {
+        if (!result.isSuccess) {
             Log.d(TAG, "Couldn't authorize")
-        }
-        else {
+        } else {
             account = result.huaweiId
             init()
         }
+        return permissionsGranted
     }
 
     private val permissionsGranted: Boolean
         get() = (account != null && HuaweiIdAuthManager.containScopes(account, scopes))
-
 
     private suspend fun refreshAccessToken(activity: Activity)
     = suspendCoroutine<String> { continuation ->
@@ -113,24 +84,4 @@ object CredentialManager {
         credential = builder.build().setAccessToken(accessToken)
         return DriveCode.SUCCESS
     }
-
-    fun exit(context: Context) {
-        deleteFile(context.cacheDir)
-        deleteFile(context.filesDir)
-    }
-
-    private fun deleteFile(file: File?) {
-        if (null == file || !file.exists()) {
-            return
-        }
-        if (file.isDirectory) {
-            val files = file.listFiles()
-            if (files != null) {
-                for (f in files) {
-                    deleteFile(f)
-                }
-            }
-        }
-    }
-
 }
